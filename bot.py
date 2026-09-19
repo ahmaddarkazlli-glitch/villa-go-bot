@@ -1,6 +1,7 @@
 import uuid
 import re
 import os
+import json
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from telegram import InputMediaPhoto
@@ -14,7 +15,15 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 # 1. الاتصال بـ Google Sheets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+# الكود الجديد للاتصال بـ Google Sheets:
+google_creds_json = os.getenv("GOOGLE_CREDENTIALS")
+
+if google_creds_json:
+    creds_dict = json.loads(google_creds_json)
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+else:
+    creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+
 client = gspread.authorize(creds)
 SPREADSHEET_KEY = os.getenv("SPREADSHEET_KEY")
 
