@@ -12,6 +12,27 @@ from telegram.ext import (
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+# سيرفر وهمي مجاني لإرضاء فحص المنافذ في Render
+class DummyHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running!")
+
+    def log_message(self, format, *args):
+        return  # لمنع إغراق السجلات بركود الفحص
+
+def run_dummy_server():
+    port = int(os.getenv("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), DummyHandler)
+    server.serve_forever()
+
+# تشغيل السيرفر الوهمي في خيط منفصل (Thread)
+threading.Thread(target=run_dummy_server, daemon=True).start()
+
 
 # 1. الاتصال بـ Google Sheets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
