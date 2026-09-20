@@ -811,7 +811,11 @@ async def handle_owner_decision(update: Update, context: ContextTypes.DEFAULT_TY
 async def cancel_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("تم إلغاء عملية الحجز.")
+    # تفريغ الذاكرة المؤقتة للزبون
+    context.user_data.clear()
+    await query.edit_message_text(
+        "❌ تم إلغاء عملية الحجز بنجاح.\n\nيمكنك البدء من جديد عبر إرسال /start"
+    )
     return ConversationHandler.END
 
 # 12. تشغيل التطبيق
@@ -835,9 +839,15 @@ def main():
                 CallbackQueryHandler(ask_transaction_id, pattern='^confirm_booking$'),
                 CallbackQueryHandler(cancel_booking, pattern='^cancel_booking$')
             ],
-            TRANSACTION_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_transaction_id)]
+            TRANSACTION_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_transaction_id),
+                             # ⬇️ إضافـة هذا السطر لالتقاط زر الإلغاء أثناء إدخال رقم الحوالة
+                CallbackQueryHandler(cancel_booking, pattern='^cancel_booking$')]
         },
-        fallbacks=[CommandHandler("start", start)]
+        fallbacks=[CommandHandler("start", start),
+                   # ⬇️ إضافـة هذا السطر لضمان التقاط زر الإلغاء أو أمر /cancel من أي خطوة
+            CallbackQueryHandler(cancel_booking, pattern='^cancel_booking$'),
+            CommandHandler("cancel", cancel_booking)
+                   ]
     )
     
     app.add_handler(CommandHandler("start", start))
