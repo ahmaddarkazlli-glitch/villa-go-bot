@@ -124,6 +124,44 @@ async def list_cities(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("اختر المنطقة التي ترغب بالحجز فيها:", reply_markup=reply_markup)
     else:
         await query.edit_message_text("اختر المنطقة التي ترغب بالحجز فيها:", reply_markup=reply_markup)
+        
+async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    # مسح بيانات الحجز المؤقتة إن وجدت عند العودة للرئيسية
+    context.user_data.clear()
+
+    TERMS_URL = "https://telegra.ph/Villa-Go---Privacy-Policy-09-15"
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "تصفح المزارع حسب المنطقة 📍", callback_data="list_cities"
+            )
+        ],
+        [InlineKeyboardButton("حجوزاتي 📅", callback_data="my_bookings")],
+        [InlineKeyboardButton("السياسات والشروط 📜", url=TERMS_URL)],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # التحقق مما إذا كانت الرسالة الحالية تحتوي على صورة لمسحها وإرسال القائمة كنص
+    try:
+        if query.message.photo:
+            await query.message.delete()
+            await query.message.reply_text(
+                "أهلاً بك مجدداً في منصة Villa Go اختر من القائمة للبدء:",
+                reply_markup=reply_markup,
+            )
+        else:
+            await query.edit_message_text(
+                "أهلاً بك مجدداً في منصة Villa Go اختر من القائمة للبدء:",
+                reply_markup=reply_markup,
+            )
+    except Exception:
+        pass  # لتفادي خطأ Message is not modified في حال تكرار الضغط
+
+
 
 async def list_farms_by_city(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -851,6 +889,9 @@ def main():
     )
     
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(
+        CallbackQueryHandler(main_menu, pattern="^main_menu$")
+    )
     app.add_handler(CallbackQueryHandler(list_cities, pattern='^list_cities$'))
     app.add_handler(CallbackQueryHandler(list_farms_by_city, pattern='^city_'))
     app.add_handler(CallbackQueryHandler(farm_details, pattern='^details_'))
