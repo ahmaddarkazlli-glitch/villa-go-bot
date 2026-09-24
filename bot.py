@@ -163,31 +163,53 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
-async def list_farms_by_city(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def list_farms_by_city(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
     query = update.callback_query
     await query.answer()
-    
+
     selected_city = query.data.split("_")[1]
     farms = farms_sheet.get_all_records()
-    
+
     keyboard = []
     for farm in farms:
-        if str(farm.get('status')).strip().lower() == 'active' and farm.get('city').strip() == selected_city:
-            btn_text = f"🏡 {farm['farm_name']} ({farm['price']}  ل.س / لليلة الواحدة)"
-            keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"details_{farm['farm_id']}")])
-            
-    keyboard.append([InlineKeyboardButton("🔙 العودة للمناطق", callback_data='list_cities')])
+        if (
+            str(farm.get("status")).strip().lower() == "active"
+            and farm.get("city").strip() == selected_city
+        ):
+            # قراءة السعرين مع وجود قيمة افتراضية في حال عدم التحديد
+            p_week = float(
+                farm.get("price_weekday", farm.get("price", 0)) or 0
+            )
+
+            btn_text = f"🏡 {farm['farm_name']} (يبدأ من {p_week:,.0f} ل.س)"
+            keyboard.append([
+                InlineKeyboardButton(
+                    btn_text, callback_data=f"details_{farm['farm_id']}"
+                )
+            ])
+
+    keyboard.append([
+        InlineKeyboardButton("🔙 العودة للمناطق", callback_data="list_cities")
+    ])
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(f"المزارع المتاحة في منطقة *{selected_city}*:", parse_mode='Markdown', reply_markup=reply_markup)
+    await query.edit_message_text(
+        f"المزارع المتاحة في منطقة *{selected_city}*:",
+        parse_mode="Markdown",
+        reply_markup=reply_markup,
+    )
 
 async def farm_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
+
     farm_id = query.data.split("_")[1]
     farms = farms_sheet.get_all_records()
-    selected_farm = next((f for f in farms if str(f['farm_id']) == str(farm_id)), None)
-    
+    selected_farm = next(
+        (f for f in farms if str(f["farm_id"]) == str(farm_id)), None
+    )
+
     if selected_farm:
         booked_ranges = get_booked_ranges(farm_id)
         booked_text = ""
@@ -198,25 +220,50 @@ async def farm_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             booked_text = "\n✨ *جميع التواريخ القادمة متاحة للحجز!*\n"
 
+        # قراءة سعر منتصف الأسبوع ونهاية الأسبوع
+        price_weekday = float(
+            selected_farm.get("price_weekday", selected_farm.get("price", 0))
+            or 0
+        )
+        price_weekend = float(
+            selected_farm.get("price_weekend", selected_farm.get("price", 0))
+            or 0
+        )
+
         details_text = (
             f"🏡 *{selected_farm['farm_name']}*\n\n"
             f"📍 *المنطقة:* {selected_farm['city']} - {selected_farm.get('location', '')}\n"
-            f"💰 *السعر لليوم:* {selected_farm['price']} ل.س\n"
+            f"💰 *الأسعار:*\n"
+            f"  • منتصف الأسبوع (الأحد - الأربعاء): `{price_weekday:,.0f}` ل.س/ليلة\n"
+            f"  • نهاية الأسبوع (الخميس - السبت): `{price_weekend:,.0f}` ل.س/ليلة\n"
             f"👥 *السعة:* {selected_farm['capacity']} أشخاص\n"
-            f"🪟 *عدد الغرف:* {selected_farm['bedrooms']}\n"
+            f"🪟 *غرف النوم:* {selected_farm['bedrooms']}\n"
             f"🏊‍♂️ *مسبح:* {selected_farm['pool']}\n"
             f"📝 *الوصف:* {selected_farm['description']}\n"
             f"{booked_text}"
         )
-        
+
         keyboard = [
-            [InlineKeyboardButton("حجز هذه المزرعة 📅", callback_data=f"startbook_{farm_id}")],
-            [InlineKeyboardButton("🔙 العودة للمناطق", callback_data='list_cities')]
+            [
+                InlineKeyboardButton(
+                    "حجز هذه المزرعة 📅",
+                    callback_data=f"startbook_{farm_id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🔙 العودة للمناطق", callback_data="list_cities"
+                )
+            ],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        photo_raw = str(selected_farm.get('photo', '')).strip()
-        photo_urls = [url.strip() for url in photo_raw.split(',') if url.strip().startswith('http')]
+
+        photo_raw = str(selected_farm.get("photo", "")).strip()
+        photo_urls = [
+            url.strip()
+            for url in photo_raw.split(",")
+            if url.strip().startswith("http")
+        ]
 
         if photo_urls:
             await query.message.delete()
@@ -225,21 +272,28 @@ async def farm_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=query.message.chat_id,
                     photo=photo_urls[0],
                     caption=details_text,
-                    parse_mode='Markdown',
-                    reply_markup=reply_markup
+                    parse_mode="Markdown",
+                    reply_markup=reply_markup,
                 )
             else:
-                media_group = [InputMediaPhoto(media=url) for url in photo_urls]
-                await context.bot.send_media_group(chat_id=query.message.chat_id, media=media_group)
+                media_group = [
+                    InputMediaPhoto(media=url) for url in photo_urls
+                ]
+                await context.bot.send_media_group(
+                    chat_id=query.message.chat_id, media=media_group
+                )
                 await context.bot.send_message(
                     chat_id=query.message.chat_id,
                     text=details_text,
-                    parse_mode='Markdown',
-                    reply_markup=reply_markup
+                    parse_mode="Markdown",
+                    reply_markup=reply_markup,
                 )
         else:
-            await query.edit_message_text(details_text, parse_mode='Markdown', reply_markup=reply_markup)
-
+            await query.edit_message_text(
+                details_text,
+                parse_mode="Markdown",
+                reply_markup=reply_markup,
+            )
 # -------------------------------------------------------------
 # ⚠️ قائمة حجوزاتي (مُحدثة لإضافة زر الإلغاء/الحذف للحجوزات المعلقة)
 # -------------------------------------------------------------
@@ -557,22 +611,45 @@ async def get_user_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ⚠️ زر "إلغاء/حذف الحجز ❌" مضاف هنا قبل تأكيد طلب الحجز النهائي
 # -------------------------------------------------------------
 async def show_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    farm_id = context.user_data['farm_id']
+    farm_id = context.user_data["farm_id"]
     farms = farms_sheet.get_all_records()
-    farm = next((f for f in farms if str(f['farm_id']) == str(farm_id)), None)
-    
-    daily_price = float(farm['price']) if farm else 0
-    days_count = (context.user_data['end_dt'] - context.user_data['start_dt']).days
-    
-    base_price = daily_price * days_count
+    farm = next((f for f in farms if str(f["farm_id"]) == str(farm_id)), None)
+
+    price_weekday = float(
+        farm.get("price_weekday", farm.get("price", 0)) if farm else 0
+    )
+    price_weekend = float(
+        farm.get("price_weekend", farm.get("price", 0)) if farm else 0
+    )
+
+    start_dt = context.user_data["start_dt"]
+    end_dt = context.user_data["end_dt"]
+
+    # حساب التكلفة بناءً على أيام الأسبوع الحقيقية
+    base_price = 0
+    weekday_count = 0
+    weekend_count = 0
+
+    curr_dt = start_dt
+    while curr_dt < end_dt:
+        # أيام العطلة: الخميس (3)، الجمعة (4)، السبت (5)
+        if curr_dt.weekday() in [3, 4, 5]:
+            base_price += price_weekend
+            weekend_count += 1
+        else:
+            base_price += price_weekday
+            weekday_count += 1
+        curr_dt += timedelta(days=1)
+
+    days_count = (end_dt - start_dt).days
     commission = base_price * 0.10
     total_price = base_price + commission
-    
-    context.user_data['base_price'] = base_price
-    context.user_data['commission'] = commission
-    context.user_data['total_price'] = total_price
-    context.user_data['farm_name'] = farm['farm_name'] if farm else ''
-    
+
+    context.user_data["base_price"] = base_price
+    context.user_data["commission"] = commission
+    context.user_data["total_price"] = total_price
+    context.user_data["farm_name"] = farm["farm_name"] if farm else ""
+
     summary = (
         "📋 *تأكيد تفاصيل الحجز:*\n\n"
         f"👤 *العميل الموثّق:* {context.user_data['full_name']}\n"
@@ -580,26 +657,38 @@ async def show_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏡 *المزرعة:* {context.user_data['farm_name']}\n"
         f"📅 *تاريخ الوصول:* {context.user_data['start_date']}\n"
         f"📅 *تاريخ المغادرة:* {context.user_data['end_date']} ({days_count} أيام)\n"
+        f"📊 *تفاصيل الأيام:* {weekday_count} أيام عادية | {weekend_count} أيام عطلة\n"
         f"⏰ *وقت الوصول:* {context.user_data['check_in_time']}\n"
         f"👥 *عدد الضيوف:* {context.user_data['guests']}\n\n"
-        f"💵 *السعر الكلي:* {base_price:,.0f} ل.س\n"
+        f"💵 *السعر الكلي للمزرعة:* {base_price:,.0f} ل.س\n"
         f"💳 *عمولة المنصة (10%):* {commission:,.0f} ل.س\n"
         f"💰 *الإجمالي المطلوب:* {total_price:,.0f} ل.س\n\n"
         f"⚠️ *لتثبيت الحجز:* يرجى دفع مبلغ العمولة ({commission:,.0f} ل.س) عربوناً عبر شام كاش."
     )
-    
+
     keyboard = [
-        
-        [InlineKeyboardButton("تأكيد وطلب الحجز ✅", callback_data='confirm_booking')],
-        [InlineKeyboardButton("إلغاء وحذف الحجز ❌", callback_data='cancel_booking')]
+        [
+            InlineKeyboardButton(
+                "تأكيد وطلب الحجز ✅", callback_data="confirm_booking"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "إلغاء وحذف الحجز ❌", callback_data="cancel_booking"
+            )
+        ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     if update.message:
-        await update.message.reply_text(summary, parse_mode='Markdown', reply_markup=reply_markup)
+        await update.message.reply_text(
+            summary, parse_mode="Markdown", reply_markup=reply_markup
+        )
     else:
-        await update.callback_query.message.reply_text(summary, parse_mode='Markdown', reply_markup=reply_markup)
-        
+        await update.callback_query.message.reply_text(
+            summary, parse_mode="Markdown", reply_markup=reply_markup
+        )
+
     return CONFIRM
 
 async def ask_transaction_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
