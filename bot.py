@@ -691,113 +691,160 @@ async def show_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return CONFIRM
 
-async def ask_transaction_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    farm_id = context.user_data.get('farm_id')
-    start_dt = context.user_data.get('start_dt')
-    end_dt = context.user_data.get('end_dt')
+async def ask_transaction_id(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
+  query = update.callback_query
+  await query.answer()
 
-    if not is_farm_available(farm_id, start_dt, end_dt):
-        await query.edit_message_text("❌ للأسف سبقك أحد المستخدمين بحجز المزرعة في هذه الفترة! يرجى اختيار تاريخ آخر.")
-        return ConversationHandler.END
+  farm_id = context.user_data.get('farm_id')
+  start_dt = context.user_data.get('start_dt')
+  end_dt = context.user_data.get('end_dt')
 
-    keyboard = [
-       
-        [InlineKeyboardButton("إلغاء وحذف الحجز ❌", callback_data='cancel_booking')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    commission_val = context.user_data.get('commission', 0)
-
+  if not is_farm_available(farm_id, start_dt, end_dt):
     await query.edit_message_text(
-        f"💳 *تفاصيل التحويل عبر شام كاش*\n\n"
-        f"1️⃣ يرجى تحويل مبلغ العمولة: *{commission_val:,.0f} ل.س*\n"
-        f"إلى رقم المحفظة التالي (اضغط عليه للنسخ المباشر):\n"
-        f"`{SHAM_CASH_ACCOUNT}`\n\n"
-        f"2️⃣ بعد إتمام التحويل، يرجى كتابة **رقم الحوالة** (Transaction ID) نصياً هنا في المحادثة:",
+        '❌ للأسف سبقك أحد المستخدمين بحجز المزرعة في هذه الفترة! يرجى اختيار'
+        ' تاريخ آخر.'
+    )
+    return ConversationHandler.END
+
+  keyboard = [
+      [
+          InlineKeyboardButton(
+              'إلغاء وحذف الحجز ❌', callback_data='cancel_booking'
+          )
+      ]
+  ]
+  reply_markup = InlineKeyboardMarkup(keyboard)
+
+  commission_val = context.user_data.get('commission', 0)
+
+  # 🔹 تعديل: إرسال الرسالة وحفظ معرفها لحذفها لاحقاً
+  sent_msg = await query.edit_message_text(
+      f'💳 *تفاصيل التحويل عبر شام كاش*\n\n'
+      f'1️⃣ يرجى تحويل مبلغ العمولة: *{commission_val:,.0f} ل.س*\n'
+      f'إلى رقم المحفظة التالي (اضغط عليه للنسخ المباشر):\n'
+      f'`{SHAM_CASH_ACCOUNT}`\n\n'
+      f'2️⃣ بعد إتمام التحويل، يرجى كتابة **رقم الحوالة** (Transaction ID) نصياً'
+      f' هنا في المحادثة:',
+      parse_mode='Markdown',
+      reply_markup=reply_markup,
+  )
+
+  # حفظ ID الرسالة في user_data
+  context.user_data['tx_msg_id'] = sent_msg.message_id
+  return TRANSACTION_ID
+
+async def get_transaction_id(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
+  tx_id = update.message.text.strip()
+
+  all_bookings = booking_sheet.get_all_records()
+  existing_tx_ids = [
+      str(b.get('transaction_id', '')).strip()
+      for b in all_bookings
+      if b.get('transaction_id')
+  ]
+
+  if tx_id in existing_tx_ids:
+    await update.message.reply_text(
+        '❌ *رقم الحوالة هذا تم استخدامه من قبل في حجز آخر!* يرجى التأكد وإعادة'
+        ' إدخال الرقم الصحيح:',
         parse_mode='Markdown',
-        reply_markup=reply_markup
     )
     return TRANSACTION_ID
 
-async def get_transaction_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tx_id = update.message.text.strip()
-    
-    all_bookings = booking_sheet.get_all_records()
-    existing_tx_ids = [str(b.get('transaction_id', '')).strip() for b in all_bookings if b.get('transaction_id')]
-
-    if tx_id in existing_tx_ids:
-        await update.message.reply_text("❌ *رقم الحوالة هذا تم استخدامه من قبل في حجز آخر!* يرجى التأكد وإعادة إدخال الرقم الصحيح:", parse_mode='Markdown')
-        return TRANSACTION_ID
-
-    context.user_data['transaction_id'] = tx_id
-    booking_id = "BK" + str(uuid.uuid4())[:6].upper()
-    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    user_id = str(update.effective_user.id)
-    farm_id = context.user_data.get('farm_id')
-    
-    booking_sheet.append_row([
-        booking_id,
-        farm_id,
-        context.user_data.get('full_name'),
-        context.user_data.get('phone'),
-        context.user_data.get('start_date'),
-        context.user_data.get('end_date'),
-        context.user_data.get('check_in_time'),
-        context.user_data.get('guests'),
-        context.user_data.get('base_price'),
-        context.user_data.get('commission'),
-        context.user_data.get('total_price'),
-        "pending_admin",
-        created_at,
-        user_id,
-        tx_id
-    ])
-    
-    farms = farms_sheet.get_all_records()
-    selected_farm = next((f for f in farms if str(f['farm_id']) == str(farm_id)), None)
-    
-    admin_msg = (
-        f"🔔 *طلب حجز جديد بانتظار التأكيد المالي (المنصة)*\n\n"
-        f"🆔 *رقم الحجز:* `{booking_id}`\n"
-        f"🔢 *رقم الحوالة المدخل:* `{tx_id}`\n"
-        f"🏡 *المزرعة:* {selected_farm['farm_name'] if selected_farm else ''}\n"
-        f"👤 *الزبون:* {context.user_data.get('full_name')}\n"
-        f"📱 *رقم الهاتف:* `{context.user_data.get('phone')}`\n"
-        f"📅 *الفترة:* من {context.user_data.get('start_date')} إلى {context.user_data.get('end_date')}\n"
-        f"💳 *العمولة المفروض استلامها:* {context.user_data.get('commission'):,.0f} ل.س\n\n"
-        f"يرجى التحقق من استلام الحوالة رقم `{tx_id}` في حساب شام كاش والموافقة:"
-    )
-    
-    admin_keyboard = [
-        [
-            InlineKeyboardButton("تأكيد استلام المبلغ ✅", callback_data=f"admin_accept_{booking_id}_{user_id}"),
-            InlineKeyboardButton("رفض (لم يصل المبلغ) ❌", callback_data=f"admin_reject_{booking_id}_{user_id}")
-        ]
-    ]
-    
+  # 🔹 تعديل: حذف الرسالة السابقة الخاصة بتعليمات التحويل إن وجدت
+  tx_msg_id = context.user_data.get('tx_msg_id')
+  if tx_msg_id:
     try:
-        await context.bot.send_message(
-            chat_id=ADMIN_CHAT_ID,
-            text=admin_msg,
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(admin_keyboard)
-        )
+      await context.bot.delete_message(
+          chat_id=update.effective_chat.id, message_id=tx_msg_id
+      )
     except Exception as e:
-        print(f"خطأ في إرسال الإشعار للأدمن: {e}")
+      print(f'تعذر حذف رسالة تعليمات الحوالة: {e}')
 
-    msg_text = (
-        f"🎉 *تم تقديم طلب الحجز واستلام رقم الحوالة بنجاح!*\n\n"
-        f"🆔 *رقم الحجز:* `{booking_id}`\n"
-        f"🔢 *رقم الحوالة:* `{tx_id}`\n"
-        f"📌 *الحالة:* قيد التدقيق المالي من قبل إدارة المنصة.\n\n"
-        f"سيتم تحويل طلبك لمالك المزرعة فور مطابقة الحوالة."
+  # 🔹 اختيارية: حذف رسالة الزبون التي تحتوي على رقم الحوالة نفسه لإبقاء المحادثة نظيفة
+  try:
+    await update.message.delete()
+  except Exception as e:
+    print(f'تعذر حذف رسالة رقم الحوالة الخاصة بالزبون: {e}')
+
+  context.user_data['transaction_id'] = tx_id
+  booking_id = 'BK' + str(uuid.uuid4())[:6].upper()
+  created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+  user_id = str(update.effective_user.id)
+  farm_id = context.user_data.get('farm_id')
+
+  booking_sheet.append_row([
+      booking_id,
+      farm_id,
+      context.user_data.get('full_name'),
+      context.user_data.get('phone'),
+      context.user_data.get('start_date'),
+      context.user_data.get('end_date'),
+      context.user_data.get('check_in_time'),
+      context.user_data.get('guests'),
+      context.user_data.get('base_price'),
+      context.user_data.get('commission'),
+      context.user_data.get('total_price'),
+      'pending_admin',
+      created_at,
+      user_id,
+      tx_id,
+  ])
+
+  farms = farms_sheet.get_all_records()
+  selected_farm = next(
+      (f for f in farms if str(f['farm_id']) == str(farm_id)), None
+  )
+
+  admin_msg = (
+      f'🔔 *طلب حجز جديد بانتظار التأكيد المالي (المنصة)*\n\n'
+      f'🆔 *رقم الحجز:* `{booking_id}`\n'
+      f'🔢 *رقم الحوالة المدخل:* `{tx_id}`\n'
+      f"🏡 *المزرعة:* {selected_farm['farm_name'] if selected_farm else ''}\n"
+      f"👤 *الزبون:* {context.user_data.get('full_name')}\n"
+      f"📱 *رقم الهاتف:* `{context.user_data.get('phone')}`\n"
+      f"📅 *الفترة:* من {context.user_data.get('start_date')} إلى"
+      f" {context.user_data.get('end_date')}\n"
+      f'💳 *العمولة المفروض استلامها:*'
+      f" {context.user_data.get('commission'):,.0f} ل.س\n\n"
+      f'يرجى التحقق من استلام الحوالة رقم `{tx_id}` في حساب شام كاش والموافقة:'
+  )
+
+  admin_keyboard = [[
+      InlineKeyboardButton(
+          'تأكيد استلام المبلغ ✅',
+          callback_data=f'admin_accept_{booking_id}_{user_id}',
+      ),
+      InlineKeyboardButton(
+          'رفض (لم يصل المبلغ) ❌',
+          callback_data=f'admin_reject_{booking_id}_{user_id}',
+      ),
+  ]]
+
+  try:
+    await context.bot.send_message(
+        chat_id=ADMIN_CHAT_ID,
+        text=admin_msg,
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(admin_keyboard),
     )
-    
-    await update.message.reply_text(msg_text, parse_mode='Markdown')
-    return ConversationHandler.END
+  except Exception as e:
+    print(f'خطأ في إرسال الإشعار للأدمن: {e}')
+
+  msg_text = (
+      f'🎉 *تم تقديم طلب الحجز بنجاح!*\n\n'
+      f'🆔 *رقم الحجز:* `{booking_id}`\n'
+      f'🔢 *رقم الحوالة:* `{tx_id}`\n'
+      f'📌 *الحالة:* قيد التدقيق المالي من قبل إدارة المنصة.\n\n'
+      f'سيتم تحويل طلبك لمالك المزرعة فور مطابقة الحوالة.'
+  )
+
+  await update.message.reply_text(msg_text, parse_mode='Markdown')
+  return ConversationHandler.END
 
 async def handle_admin_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -883,23 +930,40 @@ async def handle_owner_decision(update: Update, context: ContextTypes.DEFAULT_TY
     
     all_bookings = booking_sheet.get_all_records()
     booking_row = None
+    booking_idx = None
 
     for idx, b in enumerate(all_bookings, start=2):
         if str(b.get('booking_id')) == booking_id:
             booking_row = b
-            new_status = "confirmed" if action == "accept" else "rejected"
-            booking_sheet.update_cell(idx, 12, new_status)
+            booking_idx = idx
             break
 
-    # إضافة ملاحظة القرار في نهاية نص الرسالة الأصلي
+    if not booking_row:
+        await query.edit_message_text("❌ لم يتم العثور على بيانات هذا الحجز.")
+        return
+
+    # 🛑 حماية من التضارب (الضغط المزدوج): التحقق مما إذا تم اتخاذ قرار سابقاً
+    current_status = str(booking_row.get('status')).strip().lower()
+    if current_status != 'pending_owner':
+        await query.edit_message_text(
+            f"⚠️ *تنبيه:* تم اتخاذ قرار سابقاً بشأن هذا الحجز (الحالة الحالية: `{current_status}`).",
+            parse_mode='Markdown',
+            reply_markup=None
+        )
+        return
+
+    # تحديث الحالة الجديدة بناءً على خيار المالك
+    new_status = "confirmed" if action == "accept" else "rejected"
+    booking_sheet.update_cell(booking_idx, 12, new_status)
+
+    # تعديل نص الرسالة للمالك وإزالة الأزرار لمنع التكرار
     status_note = "\n\n✅ *تم قبول هذا الحجز بنجاح.*" if action == "accept" else "\n\n❌ *تم رفض هذا الحجز.*"
     updated_text = query.message.text + status_note
-
-    # تحديث النص والإبقاء على التفاصيل كاملة مع إزالة الأزرار (reply_markup=None)
     await query.edit_message_text(text=updated_text, parse_mode='Markdown', reply_markup=None)
 
+    # 1️⃣ في حال القبول
     if action == "accept":
-        farm_id = booking_row.get('farm_id') if booking_row else None
+        farm_id = booking_row.get('farm_id')
         farms = farms_sheet.get_all_records()
         selected_farm = next((f for f in farms if str(f['farm_id']) == str(farm_id)), None)
         
@@ -925,11 +989,17 @@ async def handle_owner_decision(update: Update, context: ContextTypes.DEFAULT_TY
         except Exception as e:
             print(f"فشل إشعارات العميل: {e}")
             
+    # 2️⃣ في حال الرفض (تمت إضافة تفاصيل استرداد الحوالة والتواصل مع الأدمن)
     elif action == "reject":
         try:
             await context.bot.send_message(
                 chat_id=user_id,
-                text=f"❌ نأسف لإبلاغك بأنه تم رفض طلب حجزك رقم `{booking_id}` من قبل صاحب المزرعة.",
+                text=(
+                    f"❌ *نأسف لإبلاغك بأنه تم رفض طلب حجزك رقم `{booking_id}` من قبل صاحب المزرعة.*\n\n"
+                    f"💳 *بخصوص الحوالة المالية:* \n"
+                    f"يُرجى التواصل مع إدارة البوت لاسترداد مبلغ العمولة والحوالة المدفوعة:\n"
+                    f"💬 @Ahmaddarkazlli"
+                ),
                 parse_mode='Markdown'
             )
         except Exception as e:
